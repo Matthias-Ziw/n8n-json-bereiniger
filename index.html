@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>JSON-Bereiniger – lokal &amp; offline</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #1e1f24; --panel: #26282e; --panel2: #2d3037; --text: #e4e6eb; --muted: #9aa0ab;
+    --line: #3a3d45; --accent: #4f8cff; --ok: #3fb68b; --warn: #e0a43a; --err: #e5484d;
+    --mono: "Cascadia Code", Consolas, "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0 12px 0 0; font-weight: 600; }
+  header .badge { font-size: 12px; color: var(--ok); border: 1px solid var(--ok); border-radius: 10px; padding: 1px 8px; }
+  button, .filebtn { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer; }
+  button:hover, .filebtn:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .45; cursor: default; }
+  .filebtn input { display: none; }
+  #fileName { color: var(--muted); font-size: 13px; }
+  .spacer { flex: 1; }
+  main { flex: 1; display: grid; grid-template-columns: 280px 1fr 1fr; min-height: 0; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); padding: 12px 14px; overflow: auto; }
+  aside h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 0 8px; }
+  aside h2:first-child { margin-top: 0; }
+  label.opt { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; cursor: pointer; }
+  label.opt input { margin-top: 3px; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+  .hint { color: var(--muted); font-size: 12px; }
+  textarea { width: 100%; min-height: 110px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; font: 12px var(--mono); padding: 6px; resize: vertical; }
+  .pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); }
+  .pane-head { padding: 8px 12px; background: var(--panel2); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .pane-head .hint { font-weight: 400; }
+  .code { flex: 1; overflow: auto; font: 13px/1.5 var(--mono); background: var(--bg); }
+  .code .l { display: flex; white-space: pre; }
+  .code .n { flex: 0 0 52px; text-align: right; padding-right: 12px; color: #5c616b; user-select: none; border-right: 1px solid var(--line); margin-right: 10px; }
+  .code .l.chg { background: rgba(79,140,255,.07); }
+  .empty { color: var(--muted); padding: 40px; text-align: center; white-space: normal; }
+  mark { border-radius: 3px; padding: 0 1px; color: #111; }
+  .c-K { background: #ff7b7b; } .c-C { background: #ffb36b; } .c-I { background: #6bc4ff; }
+  .c-H { background: #9ad7ff; } .c-E { background: #c9a2ff; } .c-B { background: #ffe066; }
+  .c-T { background: #ff9ecb; } .c-P { background: #b5e48c; } .c-N { background: #7ee0c3; }
+  .orig mark { opacity: .8; text-decoration: line-through; text-decoration-color: rgba(0,0,0,.45); }
+  footer { background: var(--panel); border-top: 1px solid var(--line); padding: 8px 16px; max-height: 32vh; overflow: auto; }
+  #status { font-size: 13px; }
+  #status.ok { color: var(--ok); } #status.err { color: var(--err); } #status.warn { color: var(--warn); }
+  table { border-collapse: collapse; width: 100%; margin-top: 6px; font-size: 12px; }
+  th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.mono { font-family: var(--mono); word-break: break-all; }
+  th { color: var(--muted); font-weight: 600; }
+  .drop { outline: 2px dashed var(--accent); outline-offset: -8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>JSON-Bereiniger</h1>
+  <span class="badge" title="Die Datei wird nur in diesem Browserfenster verarbeitet. Es gibt keinen Netzwerkzugriff.">100 % lokal, kein Upload</span>
+  <label class="filebtn">📂 Datei öffnen<input type="file" id="file" accept=".json,application/json,.txt"></label>
+  <span id="fileName">oder Datei ins Fenster ziehen</span>
+  <span class="spacer"></span>
+  <button class="primary" id="run" disabled>🔒 Privatisieren</button>
+  <button id="copy" disabled>📋 Kopieren</button>
+  <button id="save" disabled>💾 Speichern</button>
+</header>
+
+<main>
+  <aside>
+    <h2>Regeln</h2>
+    <label class="opt"><input type="checkbox" data-opt="n8n" checked><span><span class="swatch c-C"></span><b>n8n-Spezifisches</b><br><span class="hint">Credential-IDs/-Namen, Webhook-IDs, Instanz-/Workflow-IDs, Fehler-Workflow-ID; pinData (Testdaten) und staticData werden geleert</span></span></label>
+    <label class="opt"><input type="checkbox" data-opt="keys" checked><span><span class="swatch c-K"></span><b>Keys, Tokens, Passwörter</b><br><span class="hint">Werte von Feldern wie password, token, apiKey, secret, Authorization (n8n-Ausdrücke mit „=“ bleiben erhalten)</span></span></label>
+    <label class="opt"><input type="checkbox" data-opt="tokens" checked><span><span class="swatch c-T"></span><b>Token-Muster im Text</b><br><span class="hint">Bearer …, sk-…, ghp_…, xoxb-…, JWT, AWS-Keys, lange Zufallsketten ab 32 Zeichen</span></span></label>
+    <label class="opt"><input type="checkbox" data-opt="ip" checked><span><span class="swatch c-I"></span><b>IP-Adressen ersetzen</b><br><span class="hint">gleiche IP → gleicher Ersatz (192.0.2.x, Dokumentationsbereich)</span></span></label>
+    <label class="opt" style="margin-left:22px"><input type="checkbox" data-opt="keepLocal" checked><span class="hint">127.0.0.1 und 0.0.0.0 behalten</span></label>
+    <label class="opt"><input type="checkbox" data-opt="hosts" checked><span><span class="swatch c-H"></span><b>Interne Hostnamen</b><br><span class="hint">*.local, *.lan, *.home, *.internal, fritz.box …</span></span></label>
+    <label class="opt"><input type="checkbox" data-opt="email" checked><span><span class="swatch c-E"></span><b>E-Mail-Adressen</b><br><span class="hint">→ nutzer1@example.com, nutzer2@…</span></span></label>
+    <label class="opt"><input type="checkbox" data-opt="iban" checked><span><span class="swatch c-B"></span><b>IBANs</b></span></label>
+    <label class="opt"><input type="checkbox" data-opt="phone"><span><span class="swatch c-P"></span><b>Telefonnummern</b><br><span class="hint">Heuristik, kann auch andere Zahlen treffen</span></span></label>
+
+    <h2><span class="swatch c-N"></span>Eigene Begriffe</h2>
+    <div class="hint" style="margin-bottom:6px">Ein Begriff pro Zeile, z. B. Namen, Hostnamen, Firmen. Optional mit Ersatz: <code>Begriff =&gt; Ersatz</code>. Groß- und Kleinschreibung spielt keine Rolle.</div>
+    <textarea id="terms" placeholder="Max Muster => Max Mustermann&#10;mein-server&#10;Musterstraße 1"></textarea>
+    <div class="hint" style="margin-top:4px">Wird nur in diesem Browser gespeichert.</div>
+
+    <h2>Hinweis</h2>
+    <div class="hint">Die Regeln finden Typisches, aber nicht alles. Prüfe das Ergebnis immer selbst, bevor du es veröffentlichst. Die Markierungen rechts zeigen, was ersetzt wurde.</div>
+  </aside>
+
+  <section class="pane orig">
+    <div class="pane-head">Original <span class="hint" id="origInfo"></span></div>
+    <div class="code" id="origView"><div class="empty">Öffne eine JSON-Datei, zum Beispiel einen n8n-Workflow-Export.</div></div>
+  </section>
+  <section class="pane">
+    <div class="pane-head">Bereinigt <span class="hint" id="cleanInfo"></span></div>
+    <div class="code" id="cleanView"><div class="empty">Klicke auf „Privatisieren“.</div></div>
+  </section>
+</main>
+
+<footer>
+  <div id="status">Bereit.</div>
+  <div id="report"></div>
+</footer>
+
+<script>
+/* ===== CORE (ohne DOM, testbar) ===== */
+const CORE = (() => {
+  const O = '', S = '', C = '';
+  const mk = (cat, txt) => O + cat + S + txt + C;
+  const strip = s => s.replace(/.|/g, '');
+  const CAT_NAMES = { K: 'Key/Token/Passwort', C: 'n8n', T: 'Token-Muster', I: 'IP-Adresse', H: 'Hostname',
+                      E: 'E-Mail', B: 'IBAN', P: 'Telefon', N: 'Eigener Begriff' };
+
+  const SENS_KEY = /(^|[-_ .])?(pass(word|wd)?|secret|token|api[-_ ]?key|apikey|authorization|bearer|private[-_ ]?key|client[-_ ]?secret|access[-_ ]?key|session[-_ ]?id|cookie|x-api-key)($|[-_ .])?/i;
+  const SAFE_KEYS = new Set(['authentication', 'tokenType', 'sendHeaders', 'genericAuthType', 'nodeCredentialType']);
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  function parseTerms(text) {
+    return (text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => {
+      const i = l.indexOf('=>');
+      return i >= 0 ? { term: l.slice(0, i).trim(), repl: l.slice(i + 2).trim() || '[ENTFERNT]' }
+                    : { term: l, repl: '[NAME]' };
+    }).filter(t => t.term.length > 0).sort((a, b) => b.term.length - a.term.length);
+  }
+
+  function run(input, opts) {
+    const data = JSON.parse(input);
+    const report = new Map();               // key: cat|orig -> {cat, orig, repl, count}
+    const notes = [];
+    const maps = { I: new Map(), H: new Map(), E: new Map(), B: new Map(), P: new Map() };
+    const terms = parseTerms(opts.terms);
+
+    const note = (cat, orig, repl) => {
+      const k = cat + '|' + orig;
+      const r = report.get(k);
+      if (r) r.count++; else report.set(k, { cat, orig, repl, count: 1 });
+    };
+    const mapped = (cat, val, gen) => {
+      const m = maps[cat]; const key = val.toLowerCase();
+      if (!m.has(key)) m.set(key, gen(m.size + 1));
+      return m.get(key);
+    };
+
+    // Regelsatz für Text innerhalb von Strings
+    const rules = [];
+    if (opts.tokens) {
+      rules.push({ cat: 'T', re: /\bBearer\s+[A-Za-z0-9._~+\/=-]{8,}/g, f: () => 'Bearer [TOKEN]' });
+      rules.push({ cat: 'T', re: /\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}|AKIA[0-9A-Z]{16})/g, f: () => '[TOKEN]' });
+      rules.push({ cat: 'T', re: /(?<![A-Za-z0-9_+=-])[A-Za-z0-9_+=-]{32,}(?![A-Za-z0-9_+=-])/g,
+        test: m => /[A-Za-z]/.test(m) && /\d/.test(m) && !UUID.test(m), f: () => '[TOKEN]' });
+    }
+    if (opts.email) rules.push({ cat: 'E', re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
+      f: m => mapped('E', m, n => `nutzer${n}@example.com`) });
+    if (opts.iban) rules.push({ cat: 'B', re: /\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){3,7}(?: ?[A-Z0-9]{1,3})?\b/g,
+      f: m => mapped('B', m.replace(/ /g, ''), () => 'DE00 0000 0000 0000 0000 00') });
+    if (opts.ip) rules.push({ cat: 'I', re: /\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/g,
+      test: m => !(opts.keepLocal && (m === '127.0.0.1' || m === '0.0.0.0')),
+      f: m => mapped('I', m, n => `192.0.2.${n}`) });
+    if (opts.hosts) rules.push({ cat: 'H', re: /\b(?:[a-z0-9-]+\.)*[a-z0-9-]+\.(?:local|lan|home|internal|intranet|localdomain|fritz\.box|box)\b/gi,
+      f: m => mapped('H', m, n => `host${n}.example.lan`) });
+    if (opts.phone) rules.push({ cat: 'P', re: /(?<!\w)(?:\+\d{2}|0)\d{2,5}[\s\/-]?\d[\d\s\/-]{4,}\d(?!\w)/g,
+      f: m => mapped('P', m, n => `+49 000 000000${n}`) });
+    for (const t of terms) rules.push({ cat: 'N', re: new RegExp(escRe(t.term), 'gi'), f: () => t.repl });
+
+    // Text verarbeiten: Treffer sammeln, Überlappungen verwerfen, beide Fassungen bauen
+    function text(s) {
+      if (!rules.length || !s) return { o: s, c: s, hit: false };
+      const hits = [];
+      for (const r of rules) {
+        r.re.lastIndex = 0; let m;
+        while ((m = r.re.exec(s))) {
+          if (m[0].length === 0) { r.re.lastIndex++; continue; }
+          if (r.test && !r.test(m[0])) continue;
+          hits.push({ s: m.index, e: m.index + m[0].length, r, t: m[0] });
+        }
+      }
+      if (!hits.length) return { o: s, c: s, hit: false };
+      hits.sort((a, b) => a.s - b.s || (b.e - b.s) - (a.e - a.s));
+      let o = '', c = '', pos = 0;
+      for (const h of hits) {
+        if (h.s < pos) continue;
+        const repl = h.r.f(h.t);
+        note(h.r.cat, h.t, repl);
+        o += s.slice(pos, h.s) + mk(h.r.cat, h.t);
+        c += s.slice(pos, h.s) + mk(h.r.cat, repl);
+        pos = h.e;
+      }
+      o += s.slice(pos); c += s.slice(pos);
+      return { o, c, hit: true };
+    }
+
+    // Ganzen Wert ersetzen
+    function whole(cat, val, repl) {
+      const orig = typeof val === 'string' ? val : JSON.stringify(val);
+      note(cat, orig, repl);
+      return { o: mk(cat, orig), c: mk(cat, repl) };
+    }
+
+    const isExpr = v => typeof v === 'string' && v.startsWith('=');
+
+    function walk(v, path) {
+      if (Array.isArray(v)) {
+        const o = [], c = [];
+        v.forEach((x, i) => { const r = walk(x, path.concat(i)); o.push(r.o); c.push(r.c); });
+        return { o, c };
+      }
+      if (v && typeof v === 'object') {
+        const o = {}, c = {};
+        const nameIsSensitive = typeof v.name === 'string' && SENS_KEY.test(v.name) && !SAFE_KEYS.has(v.name);
+        for (const [k, val] of Object.entries(v)) {
+          const kp = text(k);                 // Schlüssel auch prüfen (z. B. Knotennamen in connections)
+          const p = path.concat(k);
+          let r;
+          // n8n-Regeln
+          if (opts.n8n && path.length === 0 && k === 'pinData' && val && typeof val === 'object' && Object.keys(val).length) {
+            notes.push(`pinData mit Testdaten aus ${Object.keys(val).length} Knoten geleert`); r = { o: val, c: {} };
+          } else if (opts.n8n && k === 'staticData' && val) {
+            notes.push('staticData geleert'); r = { o: val, c: null };
+          } else if (opts.n8n && path[path.length - 1] === 'credentials' && val && typeof val === 'object' && !Array.isArray(val)) {
+            const o2 = {}, c2 = {};
+            for (const [ck, cv] of Object.entries(val)) {
+              if (ck === 'id') { const w = whole('C', cv, 'CREDENTIAL_ID'); o2[ck] = w.o; c2[ck] = w.c; }
+              else if (ck === 'name') { const w = whole('C', cv, `[Zugangsdaten: ${k}]`); o2[ck] = w.o; c2[ck] = w.c; }
+              else { const w2 = walk(cv, p.concat(ck)); o2[ck] = w2.o; c2[ck] = w2.c; }
+            }
+            r = { o: o2, c: c2 };
+          } else if (opts.n8n && typeof val === 'string' && val && (
+                     k === 'webhookId' || k === 'instanceId' || k === 'versionId' || k === 'errorWorkflow' ||
+                     (path.length === 0 && k === 'id') || (k === 'id' && path[path.length - 1] === 'meta'))) {
+            r = whole('C', val, k === 'webhookId' ? '00000000-0000-0000-0000-000000000000' : `[${k}]`);
+          } else if (opts.keys && !SAFE_KEYS.has(k) && SENS_KEY.test(k) && val !== null && typeof val !== 'object' && val !== '' && !isExpr(val) && typeof val !== 'boolean') {
+            r = whole('K', val, '[ENTFERNT]');
+          } else if (opts.keys && nameIsSensitive && k === 'value' && typeof val === 'string' && val !== '' && !isExpr(val)) {
+            r = whole('K', val, '[ENTFERNT]');
+          } else {
+            r = walk(val, p);
+          }
+          o[kp.o] = r.o; c[kp.c] = r.c;
+        }
+        return { o, c };
+      }
+      if (typeof v === 'string') { const t = text(v); return { o: t.o, c: t.c }; }
+      return { o: v, c: v };
+    }
+
+    const res = walk(data, []);
+    const origMarked = JSON.stringify(res.o, null, 2);
+    const cleanMarked = JSON.stringify(res.c, null, 2);
+    const clean = strip(cleanMarked);
+    JSON.parse(clean); // Gültigkeit sicherstellen
+    return { origMarked, cleanMarked, clean, report: [...report.values()], notes, CAT_NAMES };
+  }
+  return { run, strip, CAT_NAMES, parseTerms };
+})();
+if (typeof module !== 'undefined') module.exports = CORE;
+
+/* ===== UI ===== */
+if (typeof document !== 'undefined') (() => {
+  const $ = id => document.getElementById(id);
+  let raw = null, fileName = 'bereinigt.json', result = null;
+
+  const store = {
+    get(k) { try { return localStorage.getItem('jsonb.' + k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem('jsonb.' + k, v); } catch {} }
+  };
+  $('terms').value = store.get('terms') || '';
+  document.querySelectorAll('[data-opt]').forEach(cb => {
+    const s = store.get('opt.' + cb.dataset.opt); if (s !== null) cb.checked = s === '1';
+    cb.addEventListener('change', () => { store.set('opt.' + cb.dataset.opt, cb.checked ? '1' : '0'); if (result) process(); });
+  });
+  $('terms').addEventListener('input', () => store.set('terms', $('terms').value));
+
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  function render(marked, el) {
+    const lines = esc(marked).split('\n');
+    el.innerHTML = lines.map((l, i) => {
+      const chg = l.includes('');
+      const html = l.replace(/(.)([\s\S]*?)/g, '<mark class="c-$1">$2</mark>');
+      return `<div class="l${chg ? ' chg' : ''}"><span class="n">${i + 1}</span><span>${html || ' '}</span></div>`;
+    }).join('');
+  }
+  function status(msg, cls) { $('status').textContent = msg; $('status').className = cls || ''; }
+
+  function load(text, name) {
+    raw = text; fileName = (name || 'datei.json').replace(/\.json$/i, '') + '_bereinigt.json';
+    result = null;
+    try {
+      const pretty = JSON.stringify(JSON.parse(text), null, 2);
+      render(pretty, $('origView'));
+      $('origInfo').textContent = `${name} · ${pretty.split('\n').length} Zeilen`;
+      $('cleanView').innerHTML = '<div class="empty">Klicke auf „Privatisieren“.</div>';
+      $('cleanInfo').textContent = ''; $('report').innerHTML = '';
+      $('run').disabled = false; $('copy').disabled = $('save').disabled = true;
+      status('Datei geladen. Wähle die Regeln und klicke auf „Privatisieren“.');
+    } catch (e) {
+      $('run').disabled = true;
+      $('origView').innerHTML = `<div class="empty">Kein gültiges JSON: ${esc(e.message)}</div>`;
+      status('Die Datei ist kein gültiges JSON.', 'err');
+    }
+  }
+
+  function opts() {
+    const o = { terms: $('terms').value };
+    document.querySelectorAll('[data-opt]').forEach(cb => o[cb.dataset.opt] = cb.checked);
+    return o;
+  }
+
+  function process() {
+    if (!raw) return;
+    try {
+      result = CORE.run(raw, opts());
+      render(result.origMarked, $('origView'));
+      render(result.cleanMarked, $('cleanView'));
+      const total = result.report.reduce((a, r) => a + r.count, 0);
+      $('cleanInfo').textContent = `${result.clean.split('\n').length} Zeilen · gültiges JSON ✓`;
+      $('copy').disabled = $('save').disabled = false;
+      status(total || result.notes.length
+        ? `${total} Ersetzung(en) in ${result.report.length} verschiedenen Werten${result.notes.length ? ' · ' + result.notes.join(' · ') : ''}. Bitte Ergebnis prüfen.`
+        : 'Nichts gefunden. Prüfe trotzdem selbst und ergänze bei Bedarf eigene Begriffe.', total ? 'ok' : 'warn');
+      const rows = result.report.sort((a, b) => a.cat.localeCompare(b.cat)).map(r =>
+        `<tr><td><span class="swatch c-${r.cat}"></span>${CORE.CAT_NAMES[r.cat]}</td><td class="mono">${esc(r.orig)}</td><td class="mono">${esc(r.repl)}</td><td>${r.count}×</td></tr>`).join('');
+      $('report').innerHTML = rows ? `<table><tr><th>Kategorie</th><th>Original</th><th>Ersetzt durch</th><th>Anzahl</th></tr>${rows}</table>` : '';
+    } catch (e) {
+      status('Fehler: ' + e.message, 'err');
+    }
+  }
+
+  $('file').addEventListener('change', e => {
+    const f = e.target.files[0]; if (!f) return;
+    $('fileName').textContent = f.name;
+    f.text().then(t => load(t, f.name));
+  });
+  document.body.addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('drop'); });
+  document.body.addEventListener('dragleave', e => { if (e.target === document.body) document.body.classList.remove('drop'); });
+  document.body.addEventListener('drop', e => {
+    e.preventDefault(); document.body.classList.remove('drop');
+    const f = e.dataTransfer.files[0]; if (!f) return;
+    $('fileName').textContent = f.name; f.text().then(t => load(t, f.name));
+  });
+  $('run').addEventListener('click', process);
+  $('copy').addEventListener('click', () => {
+    navigator.clipboard.writeText(result.clean).then(() => status('Bereinigtes JSON in die Zwischenablage kopiert.', 'ok'),
+      () => status('Kopieren nicht möglich – bitte „Speichern“ nutzen.', 'warn'));
+  });
+  $('save').addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([result.clean + '\n'], { type: 'application/json' }));
+    a.download = fileName; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    status(`Gespeichert als ${fileName} (im Download-Ordner).`, 'ok');
+  });
+
+  // Synchrones Scrollen beider Seiten
+  let lock = false;
+  const sync = (a, b) => a.addEventListener('scroll', () => {
+    if (lock) return; lock = true;
+    b.scrollTop = a.scrollTop; b.scrollLeft = a.scrollLeft;
+    requestAnimationFrame(() => lock = false);
+  });
+  sync($('origView'), $('cleanView')); sync($('cleanView'), $('origView'));
+})();
+</script>
+</body>
+</html>
